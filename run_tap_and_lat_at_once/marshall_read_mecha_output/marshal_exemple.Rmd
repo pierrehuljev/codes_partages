@@ -1,0 +1,280 @@
+---
+title: 'Marshal'
+author: 'final2'
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-02-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+```{r load_libraries}
+########################################################################
+# 1 : LOAD THE LIBRARIES AND SOURCE FILES
+########################################################################
+
+#library(tidyverse)
+library(ggplot2)
+library(plyr)
+library(readr)
+library(data.table)
+library(dplyr)
+library(Matrix)
+library(stringr)
+# Custom functions
+source("inputs/io_function.R") # CROOTBOX
+source("inputs/getSUF.R") # MARSHAL
+```
+
+# Boundary conditions of MARSHAL.
+
+The inputs of MARSHAL are:
+
+- The hydraulic properties of the roots.
+- The water potential of the soil.
+- The root system architecture (RSA).
+- The initial pressure strength that pulls water out of the collar.
+
+We first start to load the hydraulic parameters, from the roots, the soil and the atmosphere. Considering we will be working on different plant anatomies having an impact on the conductivity of the organism, three different conductivity files need to be read. The files consist of an orginial file which will get modified depending on the type of root (prim = taproot and lat = lateral roots) which in turn gives the two other conductivity files.
+
+```{r load_hydro_params}
+# MARSHAL PARAMETERS
+
+# FOR TAP ONLY
+# lecture du fichier .txt output de MECHA
+mecha_out = readLines("C:/Users/potam/OneDrive - UCL/Documents/UCL/MASTER/MASTER 2/Q2/Model biologiques/Projet final2/MARSHAL/inputs/output_MECHA_tap.txt")
+
+mecha_out
+
+start_char <- ": "
+end_char <- " cm"
+
+result <- str_extract(mecha_out, paste0("(?<=", start_char, ")(.*?)(?=", end_char, ")"))
+print(result)
+
+Rad_conduc_type_1 <- as.numeric(result[7])
+Rad_conduc_type_4 <- as.numeric(result[9])
+
+# FOR LATERAL ONLY
+# lecture du fichier .txt output de MECHA
+mecha_out2 = readLines("C:/Users/potam/OneDrive - UCL/Documents/UCL/MASTER/MASTER 2/Q2/Model biologiques/Projet final2/MARSHAL/inputs/output_MECHA_lat.txt")
+
+mecha_out2
+
+start_char <- ": "
+end_char <- " cm"
+
+result2 <- str_extract(mecha_out, paste0("(?<=", start_char, ")(.*?)(?=", end_char, ")"))
+print(result2)
+
+Rad_conduc2_type_1 <- as.numeric(result2[7])
+Rad_conduc2_type_4 <- as.numeric(result2[9])
+
+# E. We load the default parameter sets for the simulation 
+psiCollar <- -15000
+soil <- read_csv("inputs/soil.csv")
+
+# conduc_r_lat_mod <- read_csv("inputs/r_lat_mod.csv")
+# conduc_r_prim_mod <- read_csv("inputs/r_prim_mod.csv")
+
+conduc_original <- read_csv("inputs/original.csv")
+
+# Depending on the type of roots : select the unwanted root and add a '#'
+
+# TAPROOT
+conduc_original[1:2,6]=Rad_conduc_type_1
+conduc_original[3:4,6]=Rad_conduc_type_4
+
+# LATERAL ROOTS and others
+conduc_original[9:10,6]=Rad_conduc2_type_1
+conduc_original[11:12,6]=Rad_conduc2_type_4
+
+conduc_original[17:18,6]=Rad_conduc2_type_1
+conduc_original[19:20,6]=Rad_conduc2_type_4
+
+conduc_original[25:26,6]=Rad_conduc2_type_1
+conduc_original[27:28,6]=Rad_conduc2_type_4
+
+conduc_original[33:34,6]=Rad_conduc2_type_1
+conduc_original[35:36,6]=Rad_conduc2_type_4
+```
+
+Then we load the root system, that was generated using CPlantBox [[here](https://github.com/water-fluxes/day-3-plant-scale-cplantbox)]. We plot the root system to see what it looks like. In this case, the Granar model was based on a maize plant and as such, *example_app* is the output form CPlantBox coming from a maize plant (Zea Mays 1).
+
+```{r load_root}
+# Root system
+
+rootsystem <- fread("outputs/example_app.txt", header = T)
+
+rootsystem %>%
+  ggplot() +
+  theme_classic() +
+  geom_segment(aes(x = x1, y = z1, xend = x2, yend = z2), alpha=0.9) +
+  coord_fixed()
+```
+
+
+We now have all the information we need to run the MARSHAL code in itself (one command). 
+
+```{r compute_hydro}
+########################################################################
+# 4 : RUN MARSHAL
+########################################################################
+      
+# Run MARSHAL
+hydraulics_lat_mod <- getSUF(rootsystem, conduc_r_lat_mod, soil, psiCollar)
+hydraulics_prim_mod <- getSUF(rootsystem, conduc_r_prim_mod, soil, psiCollar)
+hydraulics_original <- getSUF(rootsystem, conduc_original, soil, psiCollar)
+```
+
+Then we can get all the parameters of interest and add them to the root system information generated with CPlantBox
+
+
+```{r }
+hydraulic_archi_original <- hydraulics_original$root_system
+hydraulic_archi_original$suf <- hydraulics_original$suf[,1]
+hydraulic_archi_original$kr <- hydraulics_original$kr[,1]
+hydraulic_archi_original$kx <- hydraulics_original$kx[,1]
+hydraulic_archi_original$jr <- hydraulics_original$jr[,1]
+hydraulic_archi_original$jxl <- hydraulics_original$jxl[,1]
+hydraulic_archi_original$psi <- hydraulics_original$psi[,1]
+
+
+print(paste0("KRS = ",hydraulics_original$krs))
+print(paste0("Potential transpiration = ",hydraulics_original$tpot))
+print(paste0("Actual transpiration = ",hydraulics_original$tact))
+```
+
+```{r }
+hydraulic_archi_prim_mod <- hydraulics_prim_mod$root_system
+hydraulic_archi_prim_mod$suf <- hydraulics_prim_mod$suf[,1]
+hydraulic_archi_prim_mod$kr <- hydraulics_prim_mod$kr[,1]
+hydraulic_archi_prim_mod$kx <- hydraulics_prim_mod$kx[,1]
+hydraulic_archi_prim_mod$jr <- hydraulics_prim_mod$jr[,1]
+hydraulic_archi_prim_mod$jxl <- hydraulics_prim_mod$jxl[,1]
+hydraulic_archi_prim_mod$psi <- hydraulics_prim_mod$psi[,1]
+
+
+print(paste0("KRS = ",hydraulics_prim_mod$krs))
+print(paste0("Potential transpiration = ",hydraulics_prim_mod$tpot))
+print(paste0("Actual transpiration = ",hydraulics_prim_mod$tact))
+```
+
+```{r }
+hydraulic_archi_lat_mod <- hydraulics_lat_mod$root_system
+hydraulic_archi_lat_mod$suf <- hydraulics_lat_mod$suf[,1]
+hydraulic_archi_lat_mod$kr <- hydraulics_lat_mod$kr[,1]
+hydraulic_archi_lat_mod$kx <- hydraulics_lat_mod$kx[,1]
+hydraulic_archi_lat_mod$jr <- hydraulics_lat_mod$jr[,1]
+hydraulic_archi_lat_mod$jxl <- hydraulics_lat_mod$jxl[,1]
+hydraulic_archi_lat_mod$psi <- hydraulics_lat_mod$psi[,1]
+
+
+print(paste0("KRS = ",hydraulics_lat_mod$krs))
+print(paste0("Potential transpiration = ",hydraulics_lat_mod$tpot))
+print(paste0("Actual transpiration = ",hydraulics_lat_mod$tact))
+```
+And we use this information to visualise the hydraulic properties of the root system, either in a detailed way : 
+
+
+```{r plot_archi}
+hydraulic_archi_original %>%
+  ggplot() +
+  theme_classic() +
+  geom_segment(aes(x = x1, y = z1, xend = x2, yend = z2, col = psi), alpha=0.9) +
+  scale_color_viridis_c() + 
+  coord_fixed()
+```
+
+```{r }
+hydraulic_archi_prim_mod %>%
+  ggplot() +
+  theme_classic() +
+  geom_segment(aes(x = x1, y = z1, xend = x2, yend = z2, col = psi), alpha=0.9) +
+  scale_color_viridis_c() + 
+  coord_fixed()
+```
+
+
+```{r }
+hydraulic_archi_lat_mod %>%
+  ggplot() +
+  theme_classic() +
+  geom_segment(aes(x = x1, y = z1, xend = x2, yend = z2, col = psi), alpha=0.9) +
+  scale_color_viridis_c() + 
+  coord_fixed()
+```
+
+
+
+# Sensibility analysis
+
+## Kr
+
+The variable which will have been tinkered with has been the number of xylem files in the Granar Shiny App. The original roots having 3 cells, the number has been upped to 5 cells. The code below gives two graphs showing the change in conductivity due to a change in the number of xylem files of the principal or lateral roots put in the Granar Shiny app. In both cases, the conductivity increases slightly with the number of xylem files. For the taproot, the conductivity is higher at younger roots, with an apoplastic barrier of type 1, than older roots with an apoplastic barrier of type 4. The same cannot be said about lateral roots, which show the other way around.
+
+
+```{r}
+xylem_file = c(3,3,5,5)
+Kr_prim = c(0.000089146021476,0.00003554049845,0.000092847500764 ,0.0000363748501212 )
+Kr_lat = c(0.000139678789345,0.00004125077291,0.000141821302989,0.00004162778004)
+barrier_type = c("barrier type 1", "barrier type 4","barrier type 1", "barrier type 4")
+
+matt = matrix(nrow = 4, ncol = 4)
+matt[1:4,1] = barrier_type
+matt[1:4,2] = xylem_file
+matt[1:4,3] = Kr_prim
+matt[1:4,4] = Kr_lat
+
+colnames(matt) = c("barrier type","number of xylem files","Kr_prim", "Kr_lat")
+rownames(matt) = c("original", "original", "prim_mod", "prim_mod")
+
+matt=as.data.frame(matt)
+
+ggplot(matt, aes(x = xylem_file, y = Kr_prim, color = barrier_type)) +
+  geom_point() +
+  geom_segment(aes(x = xylem_file[1], y = Kr_prim[1], xend = xylem_file[3], yend = Kr_prim[3]), linetype = "dashed", color = "red") +
+  geom_segment(aes(x = xylem_file[2], y = Kr_prim[2], xend = xylem_file[4], yend = Kr_prim[4]), linetype = "dashed", color = "blue") +
+  labs(x = "number of xylem files", y = "Kr principal root [cm/hPa/d]")
+
+ggplot(matt, aes(x = xylem_file, y = Kr_lat, color = barrier_type)) +
+  geom_point() +
+  geom_segment(aes(x = xylem_file[1], y = Kr_lat[1], xend = xylem_file[3], yend = Kr_lat[3]), linetype = "dashed", color = "red") +
+  geom_segment(aes(x = xylem_file[2], y = Kr_lat[2], xend = xylem_file[4], yend = Kr_lat[4]), linetype = "dashed", color = "blue") +
+  labs(x = "number of xylem files", y = "Kr lateral root [cm/hPa/d]")
+```
+
+
+
+## Krs
+
+The Krs obtained are: Krs_original, Krs_lat_mod et Krs_prim_mod depending on the type of root that has been modified. The code below gives a graph which shows the effect of the number of xylem files on the overall conductivity Krs. Notice the slight increase in conductivity both for the modified lateral roots and taproots. 
+
+```{r}
+xylem_files = c(3,5,5)
+Krs = c(hydraulics_original$krs,hydraulics_prim_mod$krs,hydraulics_lat_mod$krs)
+type = c("original", "prim_mod", "lat_mod")
+
+mat = matrix(nrow = 3, ncol = 3)
+mat[1:3,1] = type
+mat[1:3,2] = xylem_files
+mat[1:3,3] = Krs
+
+colnames(mat) = c("type","number of xylem files","Krs")
+rownames(mat) = c("original", "prim_mod", "lat_mod")
+
+mat=as.data.frame(mat)
+
+ggplot(mat, aes(x = xylem_files, y = Krs, color = type)) +
+  geom_point() +
+  geom_segment(aes(x = xylem_files[1], y = Krs[1], xend = xylem_files[2], yend = Krs[2]), linetype = "dashed", color = "blue") +
+  geom_segment(aes(x = xylem_files[1], y = Krs[1], xend = xylem_files[3], yend = Krs[3]), linetype = "dashed", color = "red") +
+  labs(x = "number of xylem files", y = "Krs [cm/hPa/d]")
+```
+
+

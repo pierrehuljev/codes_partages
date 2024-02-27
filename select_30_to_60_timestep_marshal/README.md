@@ -1,0 +1,1 @@
+# Explication brève mais compréhensible se trouve dans le fichier .txt

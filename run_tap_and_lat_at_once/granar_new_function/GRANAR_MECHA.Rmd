@@ -1,0 +1,118 @@
+---
+title: "GRANAR - MECHA"
+author: "final2"
+date: "October 2020"
+output:
+  html_document:
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r lib}
+# Loading R library
+library(tidyverse)
+library(plyr)
+library(deldir)
+library(sp)
+library(xml2)
+library(viridis)
+
+knitr::opts_knit$set(root.dir = "C:/Users/potam/OneDrive - UCL/Documents/UCL/MASTER/MASTER 2/Q2/Model biologiques/Projet final2/day-2-organ-GRANAR-main/day-2-organ-GRANAR-main/")
+
+
+source("GRANAR/R/granar.R")
+```
+
+Granar was built upon the following dependencies dependencies:
+
+```{r core granar, warning=F, message=F}
+# Load one parameter file for GRANAR
+#params <- read_param_xml("GRANAR/model_params/B73_taproot_2021.xml")
+#params <- read_param_xml("GRANAR/model_params/Zea_mays_2_Heymans_2019.xml")
+params <- read_param_xml("GRANAR/model_params/taproot_wait.xml")
+#params ou param <- read_param_xml("GRANAR/model_params/Italo_WW_vine_10114_C_ID2.xml")
+#param <- read_param_xml("GRANAR/model_params/Oriza_sativa_Lateral_Henry_2015.xml")
+param <- read_param_xml("GRANAR/model_params/lateral_wait.xml")
+ # # # # # # # # # # # # # # #
+#  To change paramter value   #
+ # # # # # # # # # # # # # # #
+    
+# Xylem size (diameter)
+# params$value[params$type == "max_size" & params$name == "xylem"] <- 0.043
+
+# aerenchyma proportion
+#params$value[params$type == "proportion" & params$name == "aerenchyma"] <- 0.25
+# number of lacuna
+#params$value[params$type == "n_files" & params$name == "aerenchyma"] <- 25
+
+# Generate the anatomy
+sim <- create_anatomy(parameters = params, verbatim=T)
+sim1 <- create_anatomy(parameters = param, verbatim=T)
+# sim is a list
+# sim$nodes is a data frame with most of the information
+# sim$output is a data frame with summarize anatomical features
+
+```
+
+
+```{r hydro_prop}
+# hydraulic conductivity of standard walls
+kw = 2.4E-4 # [cm^2/hPa/d] Zhu and Steudle (1991)
+
+# Cell membrane permeability, with separate contribution of the biphospholipid layer (km) and AQP (kAQP)
+km = 3.0E-5 # [cm/hPa/d]  after removal of kAQP and kpl from Elhert et al. (2009) and Bret-Hart and Silk (1994)
+kAQP = 4.3E-4 # [cm/hPa/d] 
+
+# Individual plasmodesma conductance
+kpl = 5.3E-12 #  [cm^3/hPa/d/plasmodesmata] Geometrical average from Bret-Hart and Silk (1994)
+
+# change cell hydraulic properties
+microhydro(path = "../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/Projects/granar/in/Maize_Hydraulics.xml",
+           kw, km, kAQP, kpl)
+
+```
+
+```{r visu, warning=FALSE}
+# To visualize the anatomy and the scenario that are going to be tested.
+# you can use the plot_anatomy function.
+plot_anatomy(sim, col = "segment", apo_bar = 1)
+plot_anatomy(sim, col = "segment", apo_bar = 2)
+plot_anatomy(sim, col = "segment", apo_bar = 3)
+
+plot_anatomy(sim1, col = "segment", apo_bar = 1)
+plot_anatomy(sim1, col = "segment", apo_bar = 2)
+plot_anatomy(sim1, col = "segment", apo_bar = 3)
+# To visualize cell type:
+plot_anatomy(sim) # default type
+plot_anatomy(sim1)
+```
+
+```{r MECHA}
+#TAP
+write_anatomy_xml(sim, "../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/cellsetdata/current_root_tap.xml")
+aer_in_geom_xml(sim, "../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/Projects/granar/in/Maize_Geometry.xml")
+
+#LAT
+write_anatomy_xml(sim1, "../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/cellsetdata/current_root.xml")
+aer_in_geom_xml_lat(sim1, "../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/Projects/granar/in/Maize_Geometry_lat.xml")
+```
+
+
+```{r, warning=FALSE}
+
+Flux1 <- ApoSymp("../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/Projects/granar/out/Root/Project_Test/baseline/Macro_prop_1,0.txt")
+Flux2 <- ApoSymp("../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/Projects/granar/out/Root/Project_Test/baseline/Macro_prop_2,1.txt")
+Flux3 <- ApoSymp("../../day-2-organ-MECHA-main/day-2-organ-MECHA-main/MECHA/Projects/granar/out/Root/Project_Test/baseline/Macro_prop_4,2.txt")
+
+
+plot_water_flux(Flux1, apobar = 1)
+plot_water_flux(Flux2, apobar = 2)
+plot_water_flux(Flux3, apobar = 3)
+
+
+```
+
+

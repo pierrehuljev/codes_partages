@@ -1,0 +1,162 @@
+```{r apsim}
+### Initial variables ###
+
+DAS <- c(30:60) # Modelization duration from day 30 to 60
+# Initial depths for each soil layer
+DEPTH1 <- 300
+DEPTH2 <- 300
+DEPTH3 <- 300
+# Root growth rate (mm/day)
+RGR <- 20
+# Available soil waters
+ASW1 <- 40
+ASW2 <- 30
+ASW3 <- 30
+# Saturated Vapor Pressure Fraction
+SVP_FRACT <- 0.75
+# Radiance Use Efficiency
+RUE <- 1.6
+# Transpiration Efficiency Coefficient
+TEC <- 9
+# Extraction rate constant from the crop
+KL <- 0.07
+# Leaf Area Index
+LAI <- 1.5
+POTENTIAL_DLAI <- 0.1
+# Light extinction coefficient
+K <- 0.45
+# Initial ratios
+SD1 <- 0.5
+SD2 <- 1.5
+SD3 <- 4
+# Initial biomass
+INIT_BIOMASS <- 45
+
+# Data that has been provided and is *NOT* computed
+
+initial_measurements <- read.csv2("Based_Obs.csv")
+
+### Computed data ##
+
+saturated_vapor_pressure <- function(temp){
+  # Units are in kPA and so we divide by 10
+  (6.1078 * exp((17.269 * temp) / (temp + 237.3))) * 0.1
+}
+
+vapor_pressure_deficit <- function(svp_fract, svp_min, svp_max){
+  # The input is in kPA and we use hPA so multiply by 10
+  svp_fract * (svp_max - svp_min) * 10
+}
+
+initial_measurements["svp(Tmin)"] <- saturated_vapor_pressure(initial_measurements$Tmin)
+initial_measurements["svp(Tmax)"] <- saturated_vapor_pressure(initial_measurements$Tmax)
+initial_measurements["VPDcalc"] <- vapor_pressure_deficit(SVP_FRACT, 
+                                                          initial_measurements["svp(Tmin)"],
+                                                          initial_measurements["svp(Tmax)"])
+
+# Supply dataframe & information
+
+root_depth <- sapply(DAS * RGR, min, DEPTH1+DEPTH2+DEPTH3)
+
+make_pot_supply1 <- function(rdepth, asw, kl){
+  ifelse(rdepth >= DEPTH1, 1, rdepth/DEPTH1) * asw * kl
+}
+
+make_pot_supply2 <- function(rdepth, asw, kl){
+  ifelse(rdepth <= DEPTH1, 0, ifelse(rdepth > DEPTH1 + DEPTH2, 1, (rdepth - DEPTH1) / DEPTH2)) * asw * kl
+}
+
+make_pot_supply3 <- function(rdepth, asw, kl){
+  ifelse(rdepth <= DEPTH1 + DEPTH2, 0, (rdepth - DEPTH1 - DEPTH2)/DEPTH3) * asw * kl
+}
+
+make_leaf_exp_effect <- function(SDratio){
+  ifelse(SDratio <= SD1, 0, ifelse(SDratio > SD2, 1, (SDratio - SD1)/(SD2 - SD1)))
+}
+
+gen_supply_and_demand_low <- function(rdepth, initial_measures){
+  ### Setting the initial states ###
+  # Supply side
+  asw1 <- c(ASW1)
+  asw2 <- c(ASW2)
+  asw3 <- c(ASW3)
+  tot_asw <- c(ASW1 + ASW2 + ASW3)
+  ps1 <- c(make_pot_supply1(rdepth[1], ASW1, KL))
+  ps2 <- c(make_pot_supply2(rdepth[1], ASW2, KL))
+  ps3 <- c(make_pot_supply3(rdepth[1], ASW3, KL))
+  pot_supply <- c(ps1[1] + ps2[1] + ps3[1])
+  # Demand side
+  lai <- c(LAI)
+  li <- c(1 - exp(-K * LAI))
+  pot_demand <- c(initial_measures$Radn[1]*li[1]*RUE / (TEC/(initial_measures$VPDcalc[1]/10)))
+  supply_on_demand <- c(pot_supply[1] / pot_demand[1])
+  leaf_exp_effect <- c(make_leaf_exp_effect(supply_on_demand[1]))
+  delta_lai <- c(leaf_exp_effect[1] * POTENTIAL_DLAI)
+  transpiration <- c(min(pot_supply[1], pot_demand[1]))
+  bio_water <- c(transpiration[1] * (TEC /(initial_measures$VPDcalc[1]/10)))
+  bio_light <- c(initial_measures$Radn[1] * li[1] * RUE)
+  delta_biomass <- c(ifelse(supply_on_demand[1] > 1, bio_light[1], bio_water[1]))
+  sum_biomass <- c(INIT_BIOMASS + delta_biomass[1])
+  # Loop over
+  for (i in 2:length(DAS)){
+      # Demand side
+      asw1[i] <- asw1[i - 1] - ps1[i - 1] / pot_supply[i - 1] * transpiration[i - 1]
+      asw2[i] <- asw2[i - 1] - ps2[i - 1] / pot_supply[i - 1] * transpiration[i - 1]
+      asw3[i] <- asw3[i - 1] - ps3[i - 1] / pot_supply[i - 1] * transpiration[i - 1]
+      tot_asw[i] <- asw1[i] + asw2[i] + asw3[i]
+      ps1[i] <- make_pot_supply1(rdepth[i], asw1[i], KL)
+      ps2[i] <- make_pot_supply2(rdepth[i], asw2[i], KL)
+      ps3[i] <- make_pot_supply3(rdepth[i], asw3[i], KL)
+      pot_supply[i] <- ps1[i] + ps2[i] + ps3[i]
+      # Supply side
+      lai[i] <- lai[i - 1] + delta_lai[i - 1]
+      li[i] <- 1 - exp(-K * lai[i])
+      pot_demand[i] <- c(initial_measures$Radn[i]*li[i]*RUE / (TEC/(initial_measures$VPDcalc[i]/10)))
+      supply_on_demand[i] <- pot_supply[i] / pot_demand[i]
+      leaf_exp_effect[i] <- make_leaf_exp_effect(supply_on_demand[i])
+      delta_lai[i] <- leaf_exp_effect[i] * POTENTIAL_DLAI
+      transpiration[i] <- min(pot_supply[i], pot_demand[i])
+      bio_water[i] <- transpiration[i] * (TEC / (initial_measures$VPDcalc[i] / 10))
+      bio_light[i] <- initial_measures$Radn[i] * li[i] * RUE
+      delta_biomass[i] <- ifelse(supply_on_demand[i] > 1, bio_light[i], bio_water[i])
+      sum_biomass[i] <- sum_biomass[i - 1] + delta_biomass[i]
+  }
+  sum_water_used <- cumsum(transpiration)
+  supply_df_low <- data.frame(
+    "DAS" = DAS,
+    "ASW1"=  asw1,
+    "ASW2" =  asw2,
+    "ASW3" =  asw3,
+    "Tot ASW" = tot_asw,
+    "Root depth" = root_depth,
+    "PS1" =  ps1,
+    "PS2" =  ps2,
+    "PS3" =  ps3,
+    "Pot Supply" =  pot_supply
+  )
+  demand_df_low <- data.frame(
+    "LAI" =  lai,
+    "LI" =  li,
+    "Pot Demand" = pot_demand,
+    "S/D" = supply_on_demand,
+    "LeafExpEffect" = leaf_exp_effect,
+    "Delta LAI" = delta_lai,
+    "Transpiration" = transpiration,
+    "Sum Water Use" = sum_water_used,
+    "Bio Water" = bio_water,
+    "Bio Light" = bio_light,
+    "Delta Biomass" =  delta_biomass,
+    "Sum Biomass" =  sum_biomass
+  )
+  return(list("Supply DF LOW" = supply_df_low, "Demand DF LOW" = demand_df_low))
+}
+
+result_low <- gen_supply_and_demand_low(root_depth, initial_measurements)
+
+print(result_low)
+
+# To export each dataframe
+write.csv2(result_low$`Supply DF LOW`, "supply_df_low.csv")
+write.csv2(result_low$`Demand DF LOW`, "demand_df_low.csv")
+
+```

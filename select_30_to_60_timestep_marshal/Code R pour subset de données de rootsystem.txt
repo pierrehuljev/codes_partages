@@ -1,0 +1,27 @@
+Ajoutez ceci dans votre Rmarkdown après l'importation des données en rootsystem:
+
+# Creation de subsets de rootsystem contenant les temps de 0.5041 (=min(rootsystem$time)) à i (i se trouvant entre 30 et 60 comme dans Apsim)
+
+dfs <- list()
+for (i in seq(from=1, to=60, by=1)) {
+  
+  t_min <- 0.5041
+  t_max <- i
+  time_range <- c(t_min, t_max)
+  
+  df <- subset(rootsystem, time >= t_min & time <= t_max)
+  
+  dfs[[i]] <- df
+  
+}
+
+hydraulics_list <- list()
+
+for (i in seq(from=30, to=60, by=1)) {
+
+  hydraulics_original <- getSUF(dfs[[i]], conduc_original, soil, psiCollar)
+
+  hydraulics_list[[i]] <- hydraulics_original
+  
+}
+ 
